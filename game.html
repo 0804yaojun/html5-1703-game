@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>飞机大战</title>
+	<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+	<div id="container">
+		<div class="start"></div> <!-- 开始界面 -->
+		<div class="main"> <!-- 主界面 -->
+			<div class="result">分数：<span class="score">0</span></div>
+		</div>
+	</div>
+
+	<script type="text/javascript" src="js/tools.js"></script>
+	<script type="text/javascript">
+
+		var Common = {
+			random : function(lower, upper){
+				return Math.floor(Math.random() * (upper - lower + 1)) + lower;
+			},
+			intersect : function (rec1, rec2) { // 判断两个对象是否有交叉，rec1表示第一个角色对象，rect2表示第二个角色对象，返回值为 true 表示交叉，否则未交叉
+				// 绝对不会碰撞的情况
+				return !(rec2.y > rec1.y + rec1.height
+							|| rec2.y + rec2.height < rec1.y
+							|| rec2.x > rec1.x + rec1.width
+							|| rec2.x + rec2.width < rec1.x);
+			}
+		};
+
+		// 地图构造函数
+		function Map(options) {
+			options = options || {};
+			this.width = options.width || 320;
+			this.height = options.height || 568;
+			this.element = options.element || $(".main")[0];
+		}
+
+		// 游戏角色构造函数
+		function Role(options) {
+			options = options || {};
+			this.element = null; // DOM 元素
+			this.imgSrc = options.imgSrc; // 角色图片路径
+			this.width = options.width; // 宽度
+			this.height = options.height; // 高度
+			this.x = options.x; // x坐标
+			this.y = options.y; // y坐标
+			this.speed = options.speed; // 移动速度
+			this.hp = options.hp; // 血量
+			this.isAlive = true; // 是否存活
+
+			this.map = options.map || null; // 添加当前游戏角色对象与地图间的关联
+		}
+
+
+		// 游戏角色原型中添加初始化方法，创建各角色使用到的 DOM 元素
+		// 并添加到地图的容器中展示
+		Role.prototype.init = function(){
+			// 创建当前游戏角色使用到的 DOM 元素
+			var elem = this.element = document.createElement("img");
+			// 设置图片路径
+			elem.src = this.imgSrc;
+			// 设置 CSS
+			css(elem, {
+				position : "absolute",
+				top : this.y + "px",
+				left : this.x + "px",
+				width : this.width + "px",
+				height : this.height + "px"
+			});
+			// 将当前游戏角色DOM元素添加到地图容器中
+			this.map.element.appendChild(elem);
+		}
+
+		// 游戏角色原型中添加移动方法
+		Role.prototype.move = function(){
+			this.y += this.speed;
+			css(this.element, {
+				top : this.y + "px"
+			});
+
+			// 判断，当角色移动超出地图范围，则删除元素
+			if (this.speed > 0 && this.y > this.map.height 
+				|| this.speed < 0 && this.y < 0){
+				this.element.parentNode.removeChild(this.element);
+				this.isAlive = false;
+			}
+		}
+
+		// 敌机构造函数
+		function Enemy(options) {
+			Role.call(this, options);
+			this.score = options.score;
+		}
+		Enemy.prototype = new Role();
+
+		// 战机构造函数
+		function Self(options) {
+			Role.call(this, options);
+		}
+		Self.prototype = new Role();
+
+		// 重写移动的方法
+		Self.prototype.move = function(mouseX, mouseY){
+			// mouseX与mouseY表示光标指针在文档中的绝对定位
+			offset(this.element, {
+				top : mouseY - this.height / 2,
+				left : mouseX - this.width / 2
+			});
+			this.x = this.element.offsetLeft;
+			this.y = this.element.offsetTop;
+			var upperX = this.map.width - this.width,
+				upperY = this.map.height - this.height,
+				x = this.x < 0 ? 0 : (this.x > upperX ? upperX : this.x),
+				y = this.y < 0 ? 0 : (this.y > upperY ? upperY : this.y);
+			css(this.element, {
+				top : y + "px",
+				left : x + "px"
+			});
+
+			this.x = x;
+			this.y = y;
+		}
+
+		// 子弹构造函数
+		function Bullet(options) {
+			Role.apply(this, arguments);
+		}
+		Bullet.prototype = new Role();
+
+		// 平台构造函数
+		function Game() {
+			this.map = null; // 地图
+			this.self = null; // 自己的战机
+			this.enemies = []; // 存放所有敌机的数组
+			this.bullets = []; // 存放所有子弹的数组
+			this.score = 0; // 积分
+		}
+
+		// 平台原型中添加初始化方法，初始化游戏中使用到的各对象
+		Game.prototype.init = function(){
+			// 地图
+			this.map = new Map();
+			// 战机
+			this.self = new Self({
+				imgSrc : "image/self.gif",
+				width : 66,
+				height : 80,
+				x : 100,
+				y : 400,
+				hp : 5000,
+				map : this.map
+			});
+			this.self.init();
+		}
+
+		// 平台原型中添加注册事件监听的方法
+		Game.prototype.registerEventListener = function(){
+			var that = this;
+			// 点击开始
+			on($(".start")[0], "click", function(){
+				hide(this); // 隐藏开始界面
+				show($(".main")[0]); // 显示主界面
+
+				// 初始化游戏角色
+				that.init();
+				// 启动游戏
+				that.start();
+			});
+
+			// 在主界面中移动鼠标，则战机跟随鼠标光标移动
+			on($(".main")[0], "mousemove", function(e){
+				e = e || event;
+				var x = e.pageX || (e.clientX + (document.documentElement.scrollLeft || document.body.scrollLeft)),
+					y = e.pageY || (e.clientY + (document.documentElement.scrollTop || document.body.scrollTop));
+				that.self.move(x, y);
+			});
+		}
+
+		// 开始生成敌机与子弹等完成游戏
+		Game.prototype.start = function(){
+			// 周期性生成敌机
+			// 1s生成一架小飞机
+			// 10s生成一架中飞机
+			// 30s生成一架大飞机
+			// 周期性生成子弹
+			// 250ms生成一颗子弹
+			var that = this;
+			var count = 0;
+			setInterval(function() {
+				count++;
+				if (count % 60 === 0) { // 1s周期，生成小飞机
+					// 创建敌机对象
+					var enemy = new Enemy({
+						imgSrc : "image/small_fly.png",
+						width : 34,
+						height : 24,
+						x : Common.random(33, 260),
+						y : 10,
+						hp : 500,
+						map : that.map,
+						speed : Common.random(1, 3),
+						score : 1000
+					});
+					enemy.init();
+					// 添加到所有敌机数组中保存
+					that.enemies.push(enemy);
+				}
+
+				if (count % 600 === 0) { // 10s周期，生成中飞机
+					// 创建敌机对象
+					var enemy = new Enemy({
+						imgSrc : "image/mid_fly.png",
+						width : 46,
+						height : 60,
+						x : Common.random(33, 260),
+						y : 10,
+						hp : 2000,
+						map : that.map,
+						speed : Common.random(1, 2),
+						score : 5000
+					});
+					enemy.init();
+					// 添加到所有敌机数组中保存
+					that.enemies.push(enemy);
+				}
+
+				if (count % 15 === 0) { // 250ms周期，生成一颗子弹
+					// 创建敌机对象
+					var bullet = new Bullet({
+						imgSrc : "image/bullet.png",
+						width : 6,
+						height : 14,
+						x : that.self.x + 30,
+						y : that.self.y - 14,
+						hp : 500,
+						map : that.map,
+						speed : -2
+					});
+					bullet.init();
+					// 添加到所有敌机数组中保存
+					that.bullets.push(bullet);
+				}
+
+				// 所有敌机移动
+				for (var i = that.enemies.length - 1; i >= 0; i--) {
+					that.enemies[i].move();
+					// 判断当前遍历到的敌机是否还存活
+					if (!that.enemies[i].isAlive)
+						that.enemies.splice(i, 1);
+				}
+
+				// 所有子弹移动
+				for (var i = that.bullets.length - 1; i >= 0; i--) {
+					that.bullets[i].move();
+					// 判断当前遍历到的子弹是否还存活
+					if (!that.bullets[i].isAlive)
+						that.bullets.splice(i, 1);
+				}
+
+				/* 碰撞检测 */
+				for (var i = that.bullets.length - 1; i >= 0; i--) {
+					var bullet = that.bullets[i];
+					for (var j = that.enemies.length - 1; j >= 0; j--) {
+						var enemy = that.enemies[j];
+						// 判断是否有交叉
+						if (Common.intersect(bullet, enemy)) { // 有碰撞
+							// 将飞机的血量值减去
+							enemy.hp -= bullet.hp;
+
+							// 移除DOM元素
+							bullet.element.parentNode.removeChild(bullet.element);
+							// 数组中移除元素
+							that.bullets.splice(i, 1);
+
+							if (enemy.hp <= 0){ // 飞机血量为0，则删除
+								enemy.element.parentNode.removeChild(enemy.element);
+								that.score += enemy.score;
+								that.enemies.splice(j, 1);
+
+								$(".score")[0].innerHTML = that.score;
+							}
+							break;
+						}
+					}
+				}
+			}, 1000/60);
+		}
+
+
+
+		// 测试
+		var game = new Game();
+		game.registerEventListener();
+	</script>
+</body>
+</html>
